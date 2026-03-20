@@ -10,23 +10,23 @@ Never get surprised by rate limits again.
 
 ### Healthy — plenty of quota remaining
 
-![Healthy statusline](assets/healthy.png)
+![Healthy statusline](assets/healthy.png?v=2)
 
 ### Moderate — usage climbing
 
-![Moderate statusline](assets/moderate.png)
+![Moderate statusline](assets/moderate.png?v=2)
 
 ### Critical — nearly exhausted
 
-![Critical statusline](assets/critical.png)
+![Critical statusline](assets/critical.png?v=2)
 
 ### Heavy Context — deep in conversation
 
-![Heavy context statusline](assets/heavy-context.png)
+![Heavy context statusline](assets/heavy-context.png?v=2)
 
 ### Fresh Session — no data yet
 
-![Fresh session statusline](assets/fresh.png)
+![Fresh session statusline](assets/fresh.png?v=2)
 
 ---
 
