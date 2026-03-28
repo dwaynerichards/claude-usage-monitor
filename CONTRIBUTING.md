@@ -5,7 +5,7 @@ Thanks for your interest in contributing! Here's how to get started.
 ## Reporting issues
 
 - Search [existing issues](https://github.com/aiedwardyi/claude-usage-monitor/issues) before opening a new one
-- Include your OS, Python version, and shell (bash/zsh/Git Bash)
+- Include your OS, Python version, and launcher environment (PowerShell, cmd, bash, zsh)
 - Paste the error output or a screenshot of the broken statusline
 
 ## Submitting changes
@@ -18,7 +18,7 @@ Thanks for your interest in contributing! Here's how to get started.
 ## Code style
 
 - Python: follow PEP 8, keep functions short and well-named
-- Shell: POSIX-compatible where possible, document platform-specific workarounds
+- Shell: keep Unix launcher changes small and document platform-specific workarounds
 - No additional dependencies — the plugin uses only the Python standard library
 
 ## What makes a good PR
@@ -26,6 +26,7 @@ Thanks for your interest in contributing! Here's how to get started.
 - Solves one problem or adds one feature
 - Includes a brief description of *why*, not just *what*
 - Doesn't break existing configurations (env vars, settings.json format)
+- Includes a smoke test update when installer or launcher behavior changes
 
 ## Questions?
 

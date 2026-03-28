@@ -8,6 +8,9 @@ import tempfile
 
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+INSTALL_PY = ROOT / "install.py"
+INSTALL_SH = ROOT / "install.sh"
+INSTALL_PS1 = ROOT / "install.ps1"
 STATUSLINE_PY = ROOT / "statusline.py"
 STATUSLINE_SH = ROOT / "statusline.sh"
 STATUSLINE_CMD = ROOT / "statusline.cmd"
@@ -90,34 +93,6 @@ def smoke_windows_launcher():
         raise AssertionError(f"unexpected statusline.cmd output:\n{proc.stdout}")
 
 
-def smoke_windows_launcher_path_fallback():
-    if os.name != "nt":
-        return
-
-    with tempfile.TemporaryDirectory() as tmp:
-        fake_bash = pathlib.Path(tmp) / "bash.cmd"
-        fake_bash.write_text("@echo off\r\necho Claude\r\n", encoding="utf-8")
-
-        env = os.environ.copy()
-        env["PATH"] = tmp + os.pathsep + env.get("PATH", "")
-        env["ProgramFiles"] = str(pathlib.Path(tmp) / "missing-program-files")
-        env["ProgramFiles(x86)"] = str(pathlib.Path(tmp) / "missing-program-files-x86")
-        env["LocalAppData"] = str(pathlib.Path(tmp) / "missing-local-app-data")
-
-        proc = subprocess.run(
-            ["cmd", "/c", str(STATUSLINE_CMD)],
-            input="",
-            text=True,
-            capture_output=True,
-            cwd=ROOT,
-            env=env,
-            timeout=20,
-        )
-        assert_ok(proc, "statusline.cmd path fallback")
-        if proc.stdout.strip() != "Claude":
-            raise AssertionError(f"unexpected statusline.cmd fallback output:\n{proc.stdout}")
-
-
 def shutil_which(name):
     paths = os.environ.get("PATH", "").split(os.pathsep)
     exts = [""]
@@ -133,12 +108,127 @@ def shutil_which(name):
     return None
 
 
+def smoke_installer():
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = pathlib.Path(tmp)
+        install_dir = tmp_path / "install-target"
+        settings_path = tmp_path / ".claude" / "settings.json"
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(
+            json.dumps({"theme": "dark", "statusLine": {"command": "old-command"}}, indent=2)
+            + "\n",
+            encoding="utf-8",
+        )
+
+        proc = subprocess.run(
+            [
+                sys.executable,
+                str(INSTALL_PY),
+                "--source-dir",
+                str(ROOT),
+                "--install-dir",
+                str(install_dir),
+                "--settings-path",
+                str(settings_path),
+            ],
+            text=True,
+            capture_output=True,
+            cwd=ROOT,
+            timeout=30,
+        )
+        assert_ok(proc, "install.py")
+
+        for filename in ("statusline.py", "statusline.sh", "statusline.cmd"):
+            if not (install_dir / filename).exists():
+                raise AssertionError(f"install.py did not copy {filename}")
+
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+        if settings.get("theme") != "dark":
+            raise AssertionError("install.py did not preserve existing settings")
+
+        command = settings.get("statusLine", {}).get("command", "")
+        expected_fragment = "statusline.cmd" if os.name == "nt" else "statusline.sh"
+        if expected_fragment not in command:
+            raise AssertionError(f"unexpected installed command: {command}")
+
+        backup_path = settings_path.with_suffix(".json.bak")
+        if not backup_path.exists():
+            raise AssertionError("install.py did not create a settings backup")
+
+
+def smoke_unix_install_wrapper():
+    if os.name == "nt":
+        return
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = pathlib.Path(tmp)
+        install_dir = tmp_path / "install-target"
+        settings_path = tmp_path / "settings.json"
+        proc = subprocess.run(
+            [
+                "bash",
+                str(INSTALL_SH),
+                "--skip-verify",
+                "--install-dir",
+                str(install_dir),
+                "--settings-path",
+                str(settings_path),
+            ],
+            text=True,
+            capture_output=True,
+            cwd=ROOT,
+            timeout=30,
+        )
+        assert_ok(proc, "install.sh")
+
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+        command = settings.get("statusLine", {}).get("command", "")
+        if "statusline.sh" not in command:
+            raise AssertionError(f"unexpected install.sh command: {command}")
+
+
+def smoke_windows_install_wrapper():
+    if os.name != "nt":
+        return
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = pathlib.Path(tmp)
+        install_dir = tmp_path / "install-target"
+        settings_path = tmp_path / "settings.json"
+        proc = subprocess.run(
+            [
+                "powershell",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(INSTALL_PS1),
+                "-SkipVerify",
+                "-InstallDir",
+                str(install_dir),
+                "-SettingsPath",
+                str(settings_path),
+            ],
+            text=True,
+            capture_output=True,
+            cwd=ROOT,
+            timeout=30,
+        )
+        assert_ok(proc, "install.ps1")
+
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+        command = settings.get("statusLine", {}).get("command", "")
+        if "statusline.cmd" not in command:
+            raise AssertionError(f"unexpected install.ps1 command: {command}")
+
+
 def main():
     smoke_statusline_py()
     smoke_empty_stdin()
     smoke_unix_launcher()
     smoke_windows_launcher()
-    smoke_windows_launcher_path_fallback()
+    smoke_installer()
+    smoke_unix_install_wrapper()
+    smoke_windows_install_wrapper()
     print("smoke tests passed")
 
 
