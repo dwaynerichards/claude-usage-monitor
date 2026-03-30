@@ -22,13 +22,13 @@
 ### Windows PowerShell
 
 ```powershell
-irm https://raw.githubusercontent.com/aiedwardyi/claude-usage-monitor/v0.1.0/install.ps1 | iex
+irm https://raw.githubusercontent.com/aiedwardyi/claude-usage-monitor/v0.1.1/install.ps1 | iex
 ```
 
 ### macOS / Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/aiedwardyi/claude-usage-monitor/v0.1.0/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/aiedwardyi/claude-usage-monitor/v0.1.1/install.sh | bash
 ```
 
 ### What you get
@@ -52,7 +52,7 @@ Uses your existing Claude Code OAuth session. No extra API key or Python package
 ```bash
 git clone https://github.com/aiedwardyi/claude-usage-monitor.git
 cd claude-usage-monitor
-git switch --detach v0.1.0
+git switch --detach v0.1.1
 python install.py
 ```
 
@@ -79,10 +79,11 @@ If you want to verify the launcher yourself before restarting Claude Code:
 | `my-project/main` | Project name and git branch |
 | `▰▰▰▰▱ 75%` | Context window remaining |
 | `↑50k ↓12k` | Input and output tokens |
-| `5h: 20%` | 5-hour quota used |
-| `(1h)` | Time until 5-hour window resets |
-| `7d: 66%` | 7-day quota used |
+| `5h: ▰▱▱▱▱ 20% (1h)` | 5-hour quota used with bar and reset countdown |
+| `7d: ▰▰▰▱▱ 66%` | 7-day quota used with bar |
 | `2m0s` | Session duration |
+
+Context shows remaining % (high = good). Quotas show used % (low = good). All bars change from green to yellow to red as usage increases.
 
 ### Color coding
 
@@ -193,7 +194,7 @@ Every segment is toggleable via environment variables. Set them in your shell pr
 ```bash
 git clone https://github.com/aiedwardyi/claude-usage-monitor.git
 cd claude-usage-monitor
-git switch --detach v0.1.0
+git switch --detach v0.1.1
 python install.py
 ```
 

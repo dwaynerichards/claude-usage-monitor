@@ -1,9 +1,10 @@
 # Changelog
 
-## Unreleased
+## v0.1.1
 
 ### Added
-- Visual progress bar for 5h/7d quotas (`CQB_BAR=1`) - see your usage at a glance with color-coded bars that match the context gauge style
+- Visual progress bar for 5h/7d quotas (on by default, disable with `CQB_BAR=0`)
+- Clear `no token` message when OAuth credentials are missing instead of silent `--`
 
 ## v0.1.0
 
