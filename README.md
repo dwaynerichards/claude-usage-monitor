@@ -37,7 +37,7 @@ After install, restart Claude Code. Your statusline now shows:
 
 ```text
 ◆ Opus │ my-project/main
-▰▰▰▰▱ 75% │ ↑50k ↓12k │ 5h: 20% (1h) │ 7d: 66% │ 2m0s
+▰▰▰▰▱ 75% │ ↑50k ↓12k │ 5h: ▰▱▱▱▱ 20% (1h) │ 7d: ▰▰▰▱▱ 66% │ 2m0s
 ```
 
 - **5h / 7d quota** - know exactly how much you've used
@@ -160,6 +160,7 @@ Every segment is toggleable via environment variables. Set them in your shell pr
 | `CQB_PACE` | `0` | Show pacing indicator |
 | `CQB_COST` | `0` | Show session cost |
 | `CQB_REMAINING` | `0` | Show remaining % instead of used % for quotas |
+| `CQB_BAR` | `1` | Show visual progress bar next to 5h/7d quotas |
 
 ### Presets
 
