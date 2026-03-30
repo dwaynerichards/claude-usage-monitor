@@ -407,8 +407,12 @@ if usage:
         el = int(usage["extra_limit"])
         line2_parts.append(f"${eu / 100:.2f}/${el / 100:.2f}")
 else:
-    line2_parts.append(f"5h: {D}--{N}")
-    line2_parts.append(f"7d: {D}--{N}")
+    if not get_oauth_token():
+        line2_parts.append(f"5h: {D}no token{N}")
+        line2_parts.append(f"7d: {D}no token{N}")
+    else:
+        line2_parts.append(f"5h: {D}--{N}")
+        line2_parts.append(f"7d: {D}--{N}")
 
 # Cost
 if SHOW_COST and cost_usd > 0:

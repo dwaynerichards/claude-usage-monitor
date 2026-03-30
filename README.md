@@ -226,6 +226,9 @@ Make sure `python3`, `python`, or `py -3` works from your shell.
 **The statusline shows `5h: -- | 7d: --`**
 The first API call runs in the background. Wait a few seconds and let Claude Code refresh.
 
+**The statusline shows `5h: no token | 7d: no token`**
+The usage API requires an OAuth login. If you logged in with an API key, run `claude login` to authenticate via browser instead. The OAuth token is stored in `~/.claude/.credentials.json`.
+
 **Unicode characters look wrong**
 Use a UTF-8 terminal font. On older Windows terminals, run `chcp 65001`.
 
