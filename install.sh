@@ -2,8 +2,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
-REPO="${CLAUDE_USAGE_MONITOR_REPO:-aiedwardyi/claude-usage-monitor}"
-REF="${CLAUDE_USAGE_MONITOR_REF:-v0.1.2}"
+REPO="${CLAUDE_USAGE_MONITOR_REPO:-dwaynerichards/claude-usage-monitor}"
+REF="${CLAUDE_USAGE_MONITOR_REF:-v0.2.0}"
 RAW_BASE="https://raw.githubusercontent.com/${REPO}/${REF}"
 
 find_python() {

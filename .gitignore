@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 .env
 .playwright-mcp/
+.claude/
+EXECUTION_GUIDE.md
+SKILL_CREATION_GUIDE.md
