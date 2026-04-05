@@ -163,6 +163,7 @@ Every segment is toggleable via environment variables. Set them in your shell pr
 | `CQB_COST` | `0` | Show session cost |
 | `CQB_REMAINING` | `1` | Show remaining % (fuel gauge) for quotas; set `0` for used % |
 | `CQB_BAR` | `1` | Show visual progress bar next to 5h/7d quotas |
+| `CQB_ASCII_BARS` | `0` | Use `#` and `-` instead of `▰` `▱` (for terminals where Unicode renders as boxes) |
 
 ### Presets
 

@@ -268,12 +268,144 @@ def smoke_bar_toggle():
             raise AssertionError(
                 f"default bar should have more chars: on={bar_on_count}, off={bar_off_count}"
             )
+
+        # ASCII bars mode: should use # and - instead of ▰ ▱
+        proc = run(
+            [sys.executable, str(STATUSLINE_PY)], stdin,
+            extra_env={"CQB_ASCII_BARS": "1"},
+        )
+        assert_ok(proc, "ASCII bars")
+        clean_ascii = ansi_re.sub("", proc.stdout)
+        if "#" not in clean_ascii:
+            raise AssertionError("ASCII bar mode should contain '#' characters")
+        ascii_unicode_count = clean_ascii.count("\u25b0") + clean_ascii.count("\u25b1")
+        # Context gauge should also be ASCII, so no unicode bar chars at all
+        if ascii_unicode_count > 0:
+            raise AssertionError(
+                f"ASCII bar mode should have 0 unicode bar chars, got {ascii_unicode_count}"
+            )
     finally:
         # Restore original cache
         if cache_backup is not None:
             pathlib.Path(cache_file).write_text(cache_backup, encoding="utf-8")
         elif os.path.exists(cache_file):
             os.unlink(cache_file)
+
+
+def smoke_no_token():
+    """Verify statusline handles missing OAuth token without crashing."""
+    payload = {
+        "model": {"display_name": "Opus"},
+        "context_window": {
+            "used_percentage": 25,
+            "context_window_size": 200000,
+            "total_input_tokens": 50000,
+            "total_output_tokens": 12000,
+        },
+        "cost": {"total_cost_usd": 0, "total_duration_ms": 120000},
+        "workspace": {"project_dir": str(ROOT)},
+    }
+    # Force no OAuth token: unset env var and point HOME to nonexistent dir
+    # so ~/.claude/.credentials.json won't be found
+    env_override = {"HOME": str(ROOT / "nonexistent"), "USERPROFILE": str(ROOT / "nonexistent")}
+    proc = run([sys.executable, str(STATUSLINE_PY)], json.dumps(payload), extra_env=env_override)
+    assert_ok(proc, "no-token")
+    assert_contains(proc.stdout, "Opus", "no-token model")
+    # Should contain the "sign in" message or "no token" — not crash
+    clean = proc.stdout.lower()
+    if "sign in" not in clean and "no token" not in clean and "quota" not in clean:
+        raise AssertionError(f"no-token output should mention auth state:\n{proc.stdout}")
+
+
+def smoke_malformed_cache():
+    """Verify statusline survives a corrupted cache file."""
+    cache_file = os.path.join(tempfile.gettempdir(), "claude-sl-usage.json")
+    cache_backup = None
+    if os.path.exists(cache_file):
+        cache_backup = pathlib.Path(cache_file).read_text(encoding="utf-8")
+
+    # Write deliberately corrupted JSON
+    pathlib.Path(cache_file).write_text("{corrupt json!!! not valid", encoding="utf-8")
+
+    try:
+        payload = {
+            "model": {"display_name": "Opus"},
+            "context_window": {
+                "used_percentage": 25,
+                "context_window_size": 200000,
+                "total_input_tokens": 0,
+                "total_output_tokens": 0,
+            },
+            "cost": {"total_cost_usd": 0, "total_duration_ms": 0},
+            "workspace": {"project_dir": str(ROOT)},
+        }
+        proc = run([sys.executable, str(STATUSLINE_PY)], json.dumps(payload))
+        assert_ok(proc, "malformed cache")
+        assert_contains(proc.stdout, "Opus", "malformed cache model")
+    finally:
+        if cache_backup is not None:
+            pathlib.Path(cache_file).write_text(cache_backup, encoding="utf-8")
+        elif os.path.exists(cache_file):
+            os.unlink(cache_file)
+
+
+def smoke_compact_helper():
+    """Test the compact() helper via subprocess (can't import directly due to stdin read).
+
+    We pass valid JSON as stdin so statusline.py proceeds past the early-exit guard,
+    defining compact() before the script ends. Assertions run after exec() completes.
+    """
+    # Valid payload — lets the script run to completion so helper functions are defined
+    payload = json.dumps({
+        "model": {"display_name": "Opus"},
+        "context_window": {"used_percentage": 0, "context_window_size": 200000,
+                           "total_input_tokens": 0, "total_output_tokens": 0},
+        "cost": {"total_cost_usd": 0, "total_duration_ms": 0},
+        "workspace": {"project_dir": "."},
+    })
+    script = (
+        f"import sys; sys.stdin = __import__('io').StringIO({payload!r})\n"
+        "exec(open('statusline.py').read())\n"
+        "assert compact(999) == '999', f'got {compact(999)}'\n"
+        "assert compact(1000) == '1k', f'got {compact(1000)}'\n"
+        "assert compact(1500) == '1.5k', f'got {compact(1500)}'\n"
+        "assert compact(1500000) == '1.5m', f'got {compact(1500000)}'\n"
+        "assert compact(2000000) == '2m', f'got {compact(2000000)}'\n"
+        "print('compact: ok')"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True, text=True, cwd=ROOT, timeout=15,
+    )
+    assert_ok(proc, "compact helper")
+    assert_contains(proc.stdout, "compact: ok", "compact helper")
+
+
+def smoke_format_duration_helper():
+    """Test the format_duration() helper via subprocess."""
+    payload = json.dumps({
+        "model": {"display_name": "Opus"},
+        "context_window": {"used_percentage": 0, "context_window_size": 200000,
+                           "total_input_tokens": 0, "total_output_tokens": 0},
+        "cost": {"total_cost_usd": 0, "total_duration_ms": 0},
+        "workspace": {"project_dir": "."},
+    })
+    script = (
+        f"import sys; sys.stdin = __import__('io').StringIO({payload!r})\n"
+        "exec(open('statusline.py').read())\n"
+        "assert format_duration(0) == '0s', f'got {format_duration(0)}'\n"
+        "assert format_duration(30000) == '30s', f'got {format_duration(30000)}'\n"
+        "assert format_duration(90000) == '1m30s', f'got {format_duration(90000)}'\n"
+        "assert format_duration(3600000) == '1h0m', f'got {format_duration(3600000)}'\n"
+        "assert format_duration(5400000) == '1h30m', f'got {format_duration(5400000)}'\n"
+        "print('format_duration: ok')"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True, text=True, cwd=ROOT, timeout=15,
+    )
+    assert_ok(proc, "format_duration helper")
+    assert_contains(proc.stdout, "format_duration: ok", "format_duration helper")
 
 
 def main():
@@ -285,6 +417,10 @@ def main():
     smoke_unix_install_wrapper()
     smoke_windows_install_wrapper()
     smoke_bar_toggle()
+    smoke_no_token()
+    smoke_malformed_cache()
+    smoke_compact_helper()
+    smoke_format_duration_helper()
     print("smoke tests passed")
 
 

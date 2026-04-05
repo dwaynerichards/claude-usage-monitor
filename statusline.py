@@ -18,13 +18,34 @@ import time
 import threading
 from pathlib import Path
 
+__version__ = "0.2.0"
+
+# --version flag: print version and exit before reading stdin.
+# Claude Code never passes args to the statusline command, so this is safe.
+if len(sys.argv) > 1 and sys.argv[1] == "--version":
+    print(__version__)
+    sys.exit(0)
+
 # Force UTF-8 output on Windows
 if sys.stdout.encoding != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8")
 
 # ── Configuration (env vars) ─────────────────────────────────────
-# Set these in your shell profile or in Claude Code's settings.json env block.
-# Values: "1" = show, "0" = hide
+# All display toggles use the CQB_ prefix (Claude Quota Bar).
+# Set in your shell profile or in ~/.claude/settings.json under "env".
+# Values: "1" = show, "0" = hide.
+#
+# CQB_CONTEXT_SIZE  (default 0) — append "of 200K" label after context gauge
+# CQB_TOKENS        (default 1) — show ↑input ↓output token counts
+# CQB_PACE          (default 0) — show ahead/behind pace indicator vs linear burn
+# CQB_RESET         (default 1) — show quota reset countdowns (e.g., "(1h)")
+# CQB_DURATION      (default 1) — show session wall-clock duration
+# CQB_BRANCH        (default 1) — show git branch name after project
+# CQB_COST          (default 0) — show cumulative session cost in USD
+# CQB_REMAINING     (default 1) — show remaining % (fuel gauge); 0 = used %
+# CQB_BAR           (default 1) — show ▰▱ visual progress bars for quotas
+# CQB_ASCII_BARS    (default 0) — use # and - instead of ▰ and ▱ (for terminals
+#                                  where Unicode block chars render as boxes)
 SHOW_CONTEXT_SIZE = os.environ.get("CQB_CONTEXT_SIZE", "0") == "1"
 SHOW_TOKENS = os.environ.get("CQB_TOKENS", "1") == "1"
 SHOW_PACE = os.environ.get("CQB_PACE", "0") == "1"
@@ -34,6 +55,11 @@ SHOW_BRANCH = os.environ.get("CQB_BRANCH", "1") == "1"
 SHOW_COST = os.environ.get("CQB_COST", "0") == "1"
 SHOW_REMAINING = os.environ.get("CQB_REMAINING", "1") == "1"
 SHOW_BAR = os.environ.get("CQB_BAR", "1") == "1"
+ASCII_BARS = os.environ.get("CQB_ASCII_BARS", "0") == "1"
+
+# Bar characters — switchable for terminal compatibility
+BAR_FULL = "#" if ASCII_BARS else "\u25b0"   # ▰ or #
+BAR_EMPTY = "-" if ASCII_BARS else "\u25b1"  # ▱ or -
 
 # ── Read stdin ──────────────────────────────────────────────────
 raw = sys.stdin.read().strip()
@@ -175,8 +201,8 @@ def used_pct_str(used_pct):
     val = 100 - used if SHOW_REMAINING else used
     if SHOW_BAR:
         filled = round(min(100, max(0, val)) / 100.0 * 5)
-        filled_chars = "\u25b0" * filled
-        empty_chars = "\u25b1" * (5 - filled)
+        filled_chars = BAR_FULL * filled
+        empty_chars = BAR_EMPTY * (5 - filled)
         bar = f"{c}{filled_chars}{empty_chars}{N} "
     else:
         bar = ""
@@ -237,6 +263,7 @@ def fetch_usage_sync():
             return
 
         import urllib.request
+        import urllib.error
 
         req = urllib.request.Request(
             "https://api.anthropic.com/api/oauth/usage",
@@ -246,48 +273,72 @@ def fetch_usage_sync():
                 "Content-Type": "application/json",
             },
         )
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read().decode())
 
-        def parse_reset_minutes(iso_str):
-            if not iso_str:
-                return None
-            try:
-                from datetime import datetime, timezone
-                # Handle various ISO formats
-                iso_str = iso_str.replace("+00:00", "+0000").replace("Z", "+0000")
-                # Strip fractional seconds
-                if "." in iso_str:
-                    base, rest = iso_str.split(".", 1)
-                    tz_part = ""
-                    for sep in ["+", "-"]:
-                        if sep in rest:
-                            idx = rest.index(sep)
-                            tz_part = rest[idx:]
-                            break
-                    iso_str = base + tz_part
-                dt = datetime.strptime(iso_str, "%Y-%m-%dT%H:%M:%S%z")
-                now = datetime.now(timezone.utc)
-                diff = (dt - now).total_seconds() / 60
-                return max(0, int(diff))
-            except Exception:
-                return None
+        cache_data = None
+        try:
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read().decode())
 
-        cache_data = {
-            "five_hour_used": data.get("five_hour", {}).get("utilization", 0),
-            "seven_day_used": data.get("seven_day", {}).get("utilization", 0),
-            "five_hour_reset_min": parse_reset_minutes(data.get("five_hour", {}).get("resets_at")),
-            "seven_day_reset_min": parse_reset_minutes(data.get("seven_day", {}).get("resets_at")),
-            "extra_enabled": data.get("extra_usage", {}).get("is_enabled", False),
-            "extra_used": data.get("extra_usage", {}).get("used_credits", 0),
-            "extra_limit": data.get("extra_usage", {}).get("monthly_limit", 0),
-            "fetched_at": time.time(),
-        }
+            def parse_reset_minutes(iso_str):
+                """Parse an ISO 8601 timestamp and return minutes until that time.
 
-        tmp = CACHE_FILE + ".tmp"
-        with open(tmp, "w") as f:
-            json.dump(cache_data, f)
-        os.replace(tmp, CACHE_FILE)
+                Handles Z suffix, fractional seconds, and arbitrary timezone offsets.
+                Uses fromisoformat (Python 3.11+ handles Z natively; older versions
+                need the Z → +00:00 normalization).
+                """
+                if not iso_str:
+                    return None
+                try:
+                    from datetime import datetime, timezone
+
+                    s = iso_str
+                    # Normalize Z suffix — Python < 3.11 doesn't accept Z in fromisoformat
+                    if s.endswith("Z"):
+                        s = s[:-1] + "+00:00"
+
+                    # Strip fractional seconds (e.g., ".123456") while preserving tz offset.
+                    # Fractional seconds sit between the seconds digit and the tz sign.
+                    if "." in s:
+                        dot_idx = s.index(".")
+                        # Find the start of the timezone offset after the dot
+                        tz_start = None
+                        for i in range(dot_idx + 1, len(s)):
+                            if s[i] in ("+", "-"):
+                                tz_start = i
+                                break
+                        if tz_start is not None:
+                            s = s[:dot_idx] + s[tz_start:]
+                        else:
+                            # No tz offset after fractional seconds — just truncate
+                            s = s[:dot_idx]
+
+                    dt = datetime.fromisoformat(s)
+                    now = datetime.now(timezone.utc)
+                    return max(0, int((dt - now).total_seconds() / 60))
+                except Exception:
+                    return None
+
+            cache_data = {
+                "five_hour_used": data.get("five_hour", {}).get("utilization", 0),
+                "seven_day_used": data.get("seven_day", {}).get("utilization", 0),
+                "five_hour_reset_min": parse_reset_minutes(data.get("five_hour", {}).get("resets_at")),
+                "seven_day_reset_min": parse_reset_minutes(data.get("seven_day", {}).get("resets_at")),
+                "extra_enabled": data.get("extra_usage", {}).get("is_enabled", False),
+                "extra_used": data.get("extra_usage", {}).get("used_credits", 0),
+                "extra_limit": data.get("extra_usage", {}).get("monthly_limit", 0),
+                "fetched_at": time.time(),
+            }
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 403):
+                # Token expired or revoked — sentinel tells renderer to prompt re-auth
+                cache_data = {"auth_error": True, "fetched_at": time.time()}
+            # Other HTTP errors: leave cache unchanged (will retry next cycle)
+
+        if cache_data is not None:
+            tmp = CACHE_FILE + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(cache_data, f)
+            os.replace(tmp, CACHE_FILE)
 
     except Exception:
         pass  # Intentional: statusline must never fail visibly
@@ -336,6 +387,10 @@ def read_cached_usage():
                 pass
 
     if cache:
+        # Auth error sentinel — token expired/revoked
+        if cache.get("auth_error"):
+            return {"auth_error": True}
+
         # Adjust reset minutes for time elapsed since fetch
         elapsed_min = (now - cache.get("fetched_at", now)) / 60
         r5 = cache.get("five_hour_reset_min")
@@ -364,7 +419,7 @@ DIAMOND = "\u25c6"  # ◆
 # Context gauge (5 blocks)
 ctx_remaining = 100 - ctx_pct_used
 filled = round(min(100, max(0, ctx_remaining)) / 100.0 * 5)
-gauge = "\u25b0" * filled + "\u25b1" * (5 - filled)  # ▰▱
+gauge = BAR_FULL * filled + BAR_EMPTY * (5 - filled)
 
 # Context size label
 if ctx_size >= 1_000_000:
@@ -396,7 +451,10 @@ if SHOW_TOKENS and (in_tok or out_tok):
 
 # Quota
 usage = read_cached_usage()
-if usage:
+if usage and usage.get("auth_error"):
+    # Token exists but is expired — give the user a clear action
+    line2_parts.append(f"{D}quota: token expired, run claude login{N}")
+elif usage:
     u5 = usage["u5"]
     u7 = usage["u7"]
     r5 = usage["r5"]
@@ -410,16 +468,23 @@ if usage:
     line2_parts.append(f"5h: {used_pct_str(u5)}{pace5}{reset5}")
     line2_parts.append(f"7d: {used_pct_str(u7)}{pace7}{reset7}")
 
-    # Extra usage (only show when 5h is nearly exhausted)
-    if usage["extra_enabled"] and u5 is not None and int(u5) >= 80:
-        eu = int(usage["extra_used"])
-        el = int(usage["extra_limit"])
-        line2_parts.append(f"${eu / 100:.2f}/${el / 100:.2f}")
+    # Extra usage — show when 5h quota is nearly exhausted AND a real limit exists.
+    # The API returns credits in cents, so we divide by 100 to get USD.
+    extra_enabled = usage["extra_enabled"]
+    extra_limit = int(usage["extra_limit"])
+    # Show extra usage whenever it's enabled and the user has consumed any credits,
+    # not just when 5h quota is near exhaustion — users need visibility into spend.
+    if extra_enabled and extra_limit > 0 and int(usage.get("extra_used", 0)) > 0:
+        extra_used_usd = int(usage["extra_used"]) / 100
+        extra_limit_usd = extra_limit / 100
+        line2_parts.append(f"${extra_used_usd:.2f}/${extra_limit_usd:.2f}")
 else:
     if not get_oauth_token():
-        line2_parts.append(f"5h: {D}no token{N}")
-        line2_parts.append(f"7d: {D}no token{N}")
+        # API key users don't have OAuth tokens, so quota data is unavailable.
+        # Show a single clear label instead of two confusing "no token" segments.
+        line2_parts.append(f"{D}quota: sign in with claude login{N}")
     else:
+        # Token exists but cache hasn't populated yet (first run or stale cache).
         line2_parts.append(f"5h: {D}--{N}")
         line2_parts.append(f"7d: {D}--{N}")
 

@@ -44,6 +44,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip the post-install launcher smoke test.",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview what the installer would do without writing any files.",
+    )
     return parser.parse_args()
 
 
@@ -108,10 +113,13 @@ def update_settings(settings_path: Path, install_dir: Path) -> tuple[Path | None
     data, raw_before = load_settings(settings_path)
 
     status_line = data.get("statusLine")
-    if status_line is None:
-        status_line = {}
     if not isinstance(status_line, dict):
-        raise SystemExit(f"{settings_path} has a non-object statusLine value")
+        # statusLine may be a string, array, or missing — overwrite it.
+        # This is non-destructive: we only replace the statusLine key,
+        # all other settings are preserved.
+        if status_line is not None:
+            print(f"Warning: existing statusLine was {type(status_line).__name__}, replacing it.")
+        status_line = {}
 
     status_line["type"] = "command"
     status_line["command"] = build_status_command(install_dir)
@@ -160,8 +168,30 @@ def main() -> int:
     source_dir = normalize_path(args.source_dir)
     install_dir = normalize_path(args.install_dir)
     settings_path = normalize_path(args.settings_path)
+    dry_run = args.dry_run
+    prefix = "[dry-run] " if dry_run else ""
 
     ensure_runtime_files(source_dir)
+
+    if dry_run:
+        # Preview mode — validate inputs but skip all file writes
+        print(f"{prefix}Would copy runtime files to: {install_dir}")
+        for name in RUNTIME_FILES:
+            print(f"{prefix}  - {source_dir / name} → {install_dir / name}")
+
+        command = build_status_command(install_dir)
+        print(f"{prefix}Would set statusLine command: {command}")
+        print(f"{prefix}Would update settings: {settings_path}")
+
+        if settings_path.exists():
+            data, _ = load_settings(settings_path)
+            print(f"{prefix}Existing settings keys: {list(data.keys())}")
+        else:
+            print(f"{prefix}Settings file does not exist yet — would create it")
+
+        print(f"{prefix}No files were modified.")
+        return 0
+
     copied = copy_runtime_files(source_dir, install_dir)
     backup_path, command = update_settings(settings_path, install_dir)
 
